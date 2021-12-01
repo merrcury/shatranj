@@ -41,9 +41,9 @@ app.add_middleware(
 )
 
 
-class UnicornException(Exception):
-    def __init__(self, name: str):
-        self.name = name
+# class UnicornException(Exception):
+#     def __init__(self, name: str):
+#         self.name = name
 
 
 # class data(BaseModel):
