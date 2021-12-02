@@ -3,7 +3,7 @@ import uuid
 from datetime import date, datetime
 import psycopg2
 import redis
-# import uvicorn
+import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
@@ -14,9 +14,11 @@ sql_user = os.environ["suser"]
 sql_host = os.environ["shost"]
 sql_pass = os.environ["spassword"]
 
+
 # REDIS DB OS
 r_host = os.environ["rhost"]
 r_pass = os.environ["rpassword"]
+
 
 r = redis.Redis(
     host=r_host,
@@ -61,9 +63,9 @@ app.add_middleware(
 #         },
 #     )
 
-def redis_entry(username, token_bid, min_bid):
-    value = str(token_bid) + "," + str(min_bid)
-    r.set(username, value, ex=300)
+def redis_entry(username, token_bid, min_bid,status):
+    value = str(token_bid) + "," + str(min_bid) +","+str(status)
+    r.set(username, value, ex=30)
 
 
 def db_write(opponent1, opponent2, token1, token2, match_id):
@@ -84,6 +86,7 @@ def db_write(opponent1, opponent2, token1, token2, match_id):
         now = datetime.now()
         tm = now.strftime("%H:%M:%S")
 
+#created_at and modified_at
         postgres_insert_query = """ INSERT INTO match_history (match_id, opponent1,opponent2, token1, token2, Date, Time) VALUES (%d,%s,%s, %d,%d,%s,%s)"""
         values = (match_id, opponent1, opponent2, token1, token2, dt, tm)
         cursor.execute(postgres_insert_query, values)
@@ -101,59 +104,86 @@ def db_write(opponent1, opponent2, token1, token2, match_id):
 
 async def matchmaker(param, request):
     eligible = {}
-    username = param.get("username")
-    token_bid = param.get("token_bid")
-    min_bid = param.get("min_bid")
+    valuesx = []
 
-    redis_entry(username, token_bid, min_bid)
+    username = str(param.get("username"))
+    token_bid = int(param.get("token_bid"))
+    min_bid = int(param.get("min_bid"))
 
-    ### ---> Better method to search on redis
-    for x in r.keys():
-        if await request.is_disconnected():
-            print("client disconnected!!!")
-            break
-        x = str(x, 'utf-8')
-        response = str(r.get(x), 'utf-8')
-        bid_new = int(response[0])
-        if min_bid <= bid_new <= token_bid and x != username:  # stops self-matching
-            eligible.update({x: bid_new})
-    ###
+    redis_entry(username, token_bid, min_bid, 1)
 
-    if len(eligible.keys()) > 1:  # stops self-matching
-        match_username = max((zip(eligible.values(), eligible.keys()))[1])
-        match_tokenbid = eligible.get(match_username)
-        idx = uuid.uuid1()
-        match_id = idx.int
+    while r.exists(username):
 
-        ### ---> Wallet Code Here
+
+        ### ---> Better method to search on redis
+        for x in r.keys():
+            if await request.is_disconnected():
+                print("client disconnected!!!")
+                break
+            x = str(x, 'utf-8')
+            response = str(r.get(x), 'utf-8')
+            valuesx = list(response.split(","))
+            bid_new = int(valuesx[0])
+            min_bid_new = int(valuesx[1])
+            statusx = int(valuesx[2])
+            if min_bid <= bid_new and min_bid_new <= token_bid and statusx==1 and x!=username:  # stops self-matching #opponent min to be check
+                eligible.update({x: bid_new})
         ###
-        db_write(username, match_username, token_bid, match_tokenbid, match_id)
-        eligible.clear()
 
-        result = {
-            "description": "Match Successful",
-            "content": {
-                "match_username": match_username,
-                "match_tokenbid": match_tokenbid,
-                "match_id": match_id
+        if len(eligible.keys()) > 1:  # stops self-matching
+            match_username = max(eligible, key= lambda y: eligible[y])
+            match_tokenbid = eligible.get(match_username)
+            idx = uuid.uuid1()
+            match_id = idx.int
 
-            }}
-    else:
-        result = {
-            "description": "No Match found",
-            "content": {
-                "match_username": None,
-                "match_tokenbid": None,
-                "match_id": None
+            ### ---> Wallet Code Here
+            ###
+            db_write(username, match_username, token_bid, match_tokenbid, match_id)
+            eligible.clear()
 
-            }}
-    yield json.dumps(result)
+            result = {
+                "description": "Match Successful",
+                "content": {
+                    "match_username": match_username,
+                    "match_tokenbid": match_tokenbid,
+                    "match_id": match_id
+
+                }}
+            yield json.dumps(result)
+            redis_entry(username,token_bid,min_bid,0)
+            break
 
 
-@app.get('/match')
+        else:
+            result = {
+                "description": "Waiting",
+                "content": {
+                    "match_username": None,
+                    "match_tokenbid": None,
+                    "match_id": None
+
+                }}
+            yield json.dumps(result)
+
+    yield json.dumps({
+                "description": "No match Found!",
+                "content": {
+                    "match_username": None,
+                    "match_tokenbid": None,
+                    "match_id": None
+
+                }})
+
+
+
+#background process
+
+@app.post('/match') #query param
 async def match(param: dict, request: Request):
     matchx = matchmaker(param, request)
     return EventSourceResponse(matchx)  ## SSE
+
+    #{"username":"Ankur","token_bid":50,"min_bid":30}
 
     # Press the green button in the gutter to run the script.
 
