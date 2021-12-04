@@ -30,7 +30,7 @@ r = redis.Redis(
     password=r_pass)
 
 
-def postgres_data(u1, u2, t1, t2):
+def postgres_data(u1, u2, t1, t2, uu1, uu2):
     match_id = uuid.uuid1().int
 
     try:
@@ -46,8 +46,8 @@ def postgres_data(u1, u2, t1, t2):
 
         now = str(datetime.now())
 
-        postgres_insert_query = """ INSERT INTO match_history (match_id, opponent1,opponent2, token1, token2, created) VALUES (%d,%s,%s, %d,%d,%s,%s)"""
-        values = (match_id, u1, u2, t1, t2, now)
+        postgres_insert_query = """ INSERT INTO match_history (match_id, opponent1,opponent2, token1, token2, created,uuid1,uuid2) VALUES (%d,%s,%s, %d,%d,%s,%s,%d,%d)"""
+        values = (match_id, u1, u2, t1, t2, now, uu1, uu2)
         cursor.execute(postgres_insert_query, values)
         connection.commit()
     except Exception as e:
@@ -86,7 +86,7 @@ async def matcher():
                             t2 = tokens[j]
                             uu1 = uuids[i]
                             uu2 = uuids[j]
-                            postgres_data(u1, u2, t1, t2)  # new entry in Postgres
+                            postgres_data(u1, u2, t1, t2, uu1, uu2)  # new entry in Postgres
                             custom = "match found for" + str(u1) + "," + str(u2)
                             logger.info(custom)
 
@@ -107,9 +107,9 @@ async def matcher():
             r.set("username", ux)
             uu = ",".join(uuids)
             r.set("uuid", uu)
-            tk = ",".join(list(map(str,tokens)))
+            tk = ",".join(list(map(str, tokens)))
             r.set("token", tk)
-            mi = ",".join(list(map(str,mins)))
+            mi = ",".join(list(map(str, mins)))
             r.set("min", mi)
 
     else:
