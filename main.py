@@ -14,7 +14,6 @@ import  psycopg2
 # REDIS DB OS
 r_host = os.environ["rhost"]
 r_pass = os.environ["rpassword"]
-matchmaking_url = os.environ['matchmaking_url']
 
 sql_user = os.environ["suser"]
 sql_host = os.environ["shost"]
