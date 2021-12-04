@@ -7,10 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 import redis
 
-
 # LOGGING
 logger = logging.getLogger()
-logger.setLevel(logger.info())
+logger.setLevel(logging.INFO)
 
 app = FastAPI(
     title="Shatranj",
@@ -29,7 +28,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 sql_user = os.environ["suser"]
 sql_host = os.environ["shost"]
 sql_pass = os.environ["spassword"]
@@ -47,88 +45,85 @@ r = redis.Redis(
 def postgres_data(u1, u2, t1, t2, uu1, uu2):
     match_id = uuid.uuid1().int
 
-    try:
-        connection = psycopg2.connect(user=sql_user,
-                                      password=sql_pass,
-                                      host=sql_host,
-                                      port="5432",
-                                      database="shatranj")
-        ## ---> take param from os.env
-        cursor = connection.cursor()
-        cursor = connection.cursor()
-        print("writing to db")
+    connection = psycopg2.connect(user=sql_user,
+                                  password=sql_pass,
+                                  host=sql_host,
+                                  port="5432",
+                                  database="shatranj")
+    ## ---> take param from os.env
+    print("writing to db")
+    uuid_pass = '"{}","{}"'.format(uu1, uu2)
+    uuid_pass = "{"+uuid_pass+"}"
+    postgres_insert_query = '''INSERT INTO match_history 
+                                (match_id, opponent1,opponent2, token1, token2,uuid) 
+                                VALUES ({},'{}','{}', {},{},'{}')'''.format(match_id, u1, u2, t1, t2, uuid_pass)
+    cursor = connection.cursor()
+    cursor.execute(postgres_insert_query)
+    connection.commit()
 
-        now = str(datetime.now())
 
-        postgres_insert_query = """ INSERT INTO match_history (match_id, opponent1,opponent2, token1, token2, created,uuid1,uuid2) VALUES (%d,%s,%s, %d,%d,%s,%s,%d,%d)"""
-        values = (match_id, u1, u2, t1, t2, now, uu1, uu2)
-        cursor.execute(postgres_insert_query, values)
-        connection.commit()
-    except Exception as e:
-        print("Failed to connect to DB" + str(e))
-    finally:
-        if connection:
-            cursor.close()
-            connection.close()
-            print("PostgreSQL connection is closed")
+def match_found(usernames, tokens, uuids, mins, i, j):
+    u1 = usernames[i]
+    u2 = usernames[j]
+    t1 = tokens[i]
+    t2 = tokens[j]
+    uu1 = uuids[i]
+    uu2 = uuids[j]
+    postgres_data(u1, u2, t1, t2, uu1, uu2)  # new entry in Postgres
+    custom = "match found for" + str(u1) + "," + str(u2)
+    logger.info(custom)
+
+    usernames.pop(i)
+    usernames.pop(j - 1)
+    uuids.pop(i)
+    uuids.pop(j - 1)
+    tokens.pop(i)
+    tokens.pop(j - 1)
+    mins.pop(i)
+    mins.pop(j - 1)
+    ux = ",".join(usernames)
+    r.set("username", ux)
+    uu = ",".join(uuids)
+    r.set("uuid", uu)
+    tk = ",".join(list(map(str, tokens)))
+    r.set("token", tk)
+    mi = ",".join(list(map(str, mins)))
+    r.set("min", mi)
+    return True
+
 
 @app.get("/matchmaking")
 async def matchmaking():
-    uuids = (list(r.get("uuid").split(",")))
+    print(r.get("uuid"))
+    uuids = (list(str(r.get("uuid"), 'utf-8').split(",")))
     logger.info("Checking matchmaking pre-requisites")
     if len(uuids) > 1:
+        logger.info("Finding Appropriate match")
 
-        while len(uuids) > 1:  # ATLEAST 2 PLAYERS
-            logger.info("Finding Appropriate match")
+        usernames = (list(map(str, str(r.get("username"), 'utf-8').split(","))))
 
-            usernames = (list(map(str, r.get("username").split(","))))
+        tokens = (list(map(int, str(r.get("token"), 'utf-8').split(","))))
 
-            tokens = (list(map(int, r.get("token").split(","))))
+        mins = (list(map(int, str(r.get("min"), 'utf-8').split(","))))
 
-            mins = (list(map(int, r.get("min").split(","))))
+        last_val = mins[-1]
+        last_ask = tokens[-1]
+        token_len = len(tokens)
+        if last_val in tokens[:-1]:
+            t = tokens[:-1].index(last_val)
+            print(t)
+            match_found(usernames, tokens, uuids, mins, t, token_len-1)
+            return {
+                'message': True
+            }
+        else:
+            for u in range(0, token_len - 1):
+                if tokens[u] > last_val:
+                    match_found(usernames, tokens, uuids, mins, u,token_len - 1)
+                    return {
+                        'message': True
+                    }
 
-            for i in range(len(mins)):
-                m = mins[i]
-                for j in range(len(tokens)):
-                    if i != j:  # Not the same player
-                        t = tokens[j]
-                        if m <= t and mins[j] < tokens[i]:  # matching Algo
-
-                            u1 = usernames[i]
-                            u2 = usernames[j]
-                            t1 = tokens[i]
-                            t2 = tokens[j]
-                            uu1 = uuids[i]
-                            uu2 = uuids[j]
-                            postgres_data(u1, u2, t1, t2, uu1, uu2)  # new entry in Postgres
-                            custom = "match found for" + str(u1) + "," + str(u2)
-                            logger.info(custom)
-
-                            usernames.pop(i)
-                            usernames.pop(j)
-                            uuids.pop(i)
-                            uuids.pop(j)
-                            tokens.pop(i)
-                            tokens.pop(j)
-                            mins.pop(i)
-                            mins.pop(j)
-                            return {"message": "Match Found"}
-
-                    logger.info("No match found, Please wait")
-                if m not in mins:
-                    break
-
-            ux = ",".join(usernames)
-            r.set("username", ux)
-            uu = ",".join(uuids)
-            r.set("uuid", uu)
-            tk = ",".join(list(map(str, tokens)))
-            r.set("token", tk)
-            mi = ",".join(list(map(str, mins)))
-            r.set("min", mi)
-
-    else:
-        logger.info("No match found!, Wait for more users to join in")
-        return {"message":"No Match Found"}
-
-
+    return {
+        'message': False
+    }
