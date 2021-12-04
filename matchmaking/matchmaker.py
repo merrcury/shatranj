@@ -2,19 +2,33 @@ import logging
 import os
 import uuid
 from datetime import datetime
-
-import boto3
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 import redis
-from aws_xray_sdk.core import patch_all
+
 
 # LOGGING
 logger = logging.getLogger()
 logger.setLevel(logger.info())
-patch_all()
 
-client = boto3.client('lambda')
-client.get_account_settings()
+app = FastAPI(
+    title="Shatranj",
+    description="Online User Registration for Shatranj",
+    version="0.1.1",
+    openapi_url="/api/v0.1.1/openapi.json",
+    docs_url="/",
+    redoc_url=None,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 sql_user = os.environ["suser"]
 sql_host = os.environ["shost"]
@@ -58,8 +72,8 @@ def postgres_data(u1, u2, t1, t2, uu1, uu2):
             connection.close()
             print("PostgreSQL connection is closed")
 
-
-async def matcher():
+@app.get("/matchmaking")
+async def matchmaking():
     uuids = (list(r.get("uuid").split(",")))
     logger.info("Checking matchmaking pre-requisites")
     if len(uuids) > 1:
@@ -98,7 +112,8 @@ async def matcher():
                             tokens.pop(j)
                             mins.pop(i)
                             mins.pop(j)
-                            break
+                            return {"message": "Match Found"}
+
                     logger.info("No match found, Please wait")
                 if m not in mins:
                     break
@@ -114,3 +129,6 @@ async def matcher():
 
     else:
         logger.info("No match found!, Wait for more users to join in")
+        return {"message":"No Match Found"}
+
+
