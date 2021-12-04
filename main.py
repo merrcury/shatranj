@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Query
+from fastapi import FastAPI, Request, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 from matchmaker import matchmaking
@@ -89,7 +89,7 @@ Ref  - https://realpython.com/python-redis/#more-data-types-in-python-vs-redis""
 
 
 @app.post('/match')
-async def match(data: match_model):
+async def match(data: match_model, background_tasks: BackgroundTasks):
 
     username = data.username
     token_bid = data.token_bid
@@ -103,7 +103,7 @@ async def match(data: match_model):
     idx = uuid.uuid1().int #Unique ID to represent the user.
 
     redis_set(idx,username,min_bid,token_bid)
-    x = await matchmaking()
+    background_tasks.add_task(matchmaking)
     result = {"status":"Matching",
               "username":username,
               "UUID":idx}
