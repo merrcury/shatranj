@@ -1,10 +1,10 @@
 from fastapi import FastAPI, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
+from matchmaker import matchmaking
 
 from pydantic import BaseModel
 import uuid
-import requests
 import redis
 import os
 import json
@@ -104,8 +104,7 @@ async def match(data: match_model):
     idx = uuid.uuid1().int #Unique ID to represent the user.
 
     redis_set(idx,username,min_bid,token_bid)
-    r = requests.get(matchmaking_url)
-    print(r.json())
+    x = await matchmaking()
     result = {"status":"Matching",
               "username":username,
               "UUID":idx}

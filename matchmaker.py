@@ -1,32 +1,11 @@
 import logging
 import os
 import uuid
-from datetime import datetime
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 import psycopg2
 import redis
 
-# LOGGING
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
-app = FastAPI(
-    title="Shatranj",
-    description="Online User Registration for Shatranj",
-    version="0.1.1",
-    openapi_url="/api/v0.1.1/openapi.json",
-    docs_url="/",
-    redoc_url=None,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 sql_user = os.environ["suser"]
 sql_host = os.environ["shost"]
@@ -92,7 +71,6 @@ def match_found(usernames, tokens, uuids, mins, i, j):
     return True
 
 
-@app.get("/matchmaking")
 async def matchmaking():
     print(r.get("uuid"))
     uuids = (list(str(r.get("uuid"), 'utf-8').split(",")))
@@ -111,19 +89,14 @@ async def matchmaking():
         token_len = len(tokens)
         if last_val in tokens[:-1]:
             t = tokens[:-1].index(last_val)
-            print(t)
-            match_found(usernames, tokens, uuids, mins, t, token_len-1)
-            return {
-                'message': True
-            }
+            if mins[t] >= last_ask:
+                match_found(usernames, tokens, uuids, mins, t, token_len-1)
+                return True
         else:
             for u in range(0, token_len - 1):
                 if tokens[u] > last_val:
-                    match_found(usernames, tokens, uuids, mins, u,token_len - 1)
-                    return {
-                        'message': True
-                    }
+                    if mins[u] >= last_ask:
+                        match_found(usernames, tokens, uuids, mins, u,token_len - 1)
+                        return True
 
-    return {
-        'message': False
-    }
+    return False
