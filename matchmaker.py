@@ -22,7 +22,7 @@ r = redis.Redis(
 
 
 def postgres_data(u1, u2, t1, t2, uu1, uu2):
-    match_id = uuid.uuid1().int
+    match_id = uuid.uuid4()
 
     connection = psycopg2.connect(user=sql_user,
                                   password=sql_pass,
@@ -35,7 +35,7 @@ def postgres_data(u1, u2, t1, t2, uu1, uu2):
     uuid_pass = "{"+uuid_pass+"}"
     postgres_insert_query = '''INSERT INTO match_history 
                                 (match_id, opponent1,opponent2, token1, token2,uuid) 
-                                VALUES ({},'{}','{}', {},{},'{}')'''.format(match_id, u1, u2, t1, t2, uuid_pass)
+                                VALUES ('{}','{}','{}', {},{},'{}')'''.format(match_id, u1, u2, t1, t2, uuid_pass)
     cursor = connection.cursor()
     cursor.execute(postgres_insert_query)
     connection.commit()

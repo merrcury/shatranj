@@ -100,7 +100,7 @@ async def match(data: match_model, background_tasks: BackgroundTasks):
             "message":"Minimum Bid can't be bigger than your bid amount"
         }
 
-    idx = uuid.uuid1().int #Unique ID to represent the user.
+    idx = uuid.uuid4() #Unique ID to represent the user.
 
     redis_set(idx,username,min_bid,token_bid)
     background_tasks.add_task(matchmaking)
@@ -148,6 +148,6 @@ async def check_matchmaking(uuid, request):
 
 
 @app.get('/match/status')
-async def match_status(uuid: int, request: Request):
+async def match_status(uuid: str, request: Request):
     status = check_matchmaking(uuid, request)
     return EventSourceResponse(status)
