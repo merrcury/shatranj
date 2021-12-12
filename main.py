@@ -2,6 +2,8 @@ from fastapi import FastAPI, Request, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 from matchmaker import matchmaking
+from fastapi_socketio import SocketManager
+
 
 from pydantic import BaseModel
 import uuid
@@ -35,17 +37,17 @@ app = FastAPI(
     description="Online User Registration for Shatranj",
     version="0.1.1",
     openapi_url="/api/v0.1.1/openapi.json",
-    docs_url="/",
-    redoc_url=None,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+socket_manager = SocketManager(app=app, mount_location='/')
 
 connection = psycopg2.connect(user=sql_user,
                                   password=sql_pass,
@@ -146,8 +148,49 @@ async def check_matchmaking(uuid, request):
         time.sleep(1)
 
 
-
 @app.get('/match/status')
 async def match_status(uuid: str, request: Request):
     status = check_matchmaking(uuid, request)
     return EventSourceResponse(status)
+
+@app.sio.on('room')
+async def join_room(sid, *args, **kwargs):
+    print(sid)
+    room, username = args
+    print(args)
+    await app.sio.save_session(sid, {'username': username, 'room': room})
+    app.sio.enter_room(sid, room)
+    await app.sio.emit('room', username, room=room)
+
+@app.sio.on('move')
+async def make_move(sid, *args, **kwargs):
+    session = await app.sio.get_session(sid)
+    move = args[0]
+    print(move)
+    print("User: {}".format(session['username']))
+    await app.sio.emit('move', move, room=session['room'], skip_sid=sid)
+
+@app.sio.on('acknowledgement')
+async def acknowledgement(sid, *args, **kwargs):
+    session = await app.sio.get_session(sid)
+    await app.sio.emit('acknowledgement', session['username'], room=session['room'], skip_sid=sid)
+
+@app.sio.event
+async def disconnect(sid):
+    session = await app.sio.get_session(sid)
+    await app.sio.emit('disconnect', session['username'], room = session['room'], skip_sid= sid)
+    app.sio.leave_room(sid, session['room'])
+    print("User Disconnected")
+    print(session)
+
+@app.sio.event
+async def connect(sid, environ, auth):
+    print("User Connected")
+
+@app.sio.on('resign')
+async def game_resign(sid, *args, **kwargs):
+    session = await app.sio.get_session(sid)
+    await app.sio.emit('resign', session['username'], room=session['room'], skip_sid=sid)
+    app.sio.leave_room(sid, session['room'])
+    print("User Resigned!")
+    print(session)
