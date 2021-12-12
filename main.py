@@ -197,6 +197,18 @@ async def match_cancel(uuid:str, request: Request):
 
 
 
+@app.get('/match')
+async def match_valid(match_id:str):
+    query = ''' select * from match_history where match_id = '{}' '''.format(match_id)
+
+    with connection.cursor() as cursor:
+        cursor.execute(query)
+        result = cursor.fetchone()
+    return {   "match_id": result[0],
+                "white": result[1],
+                "black":  result[2]
+                }
+
 @app.sio.on('room')
 async def join_room(sid, *args, **kwargs):
     print(sid)
