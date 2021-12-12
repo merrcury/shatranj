@@ -240,10 +240,10 @@ async def make_move(sid, *args, **kwargs):
     print("User: {}".format(session['username']))
     await app.sio.emit('move', move, room=session['room'], skip_sid=sid)
 
-@app.sio.on('acknowledgement')
+@app.sio.on('ack')
 async def acknowledgement(sid, *args, **kwargs):
     session = await app.sio.get_session(sid)
-    await app.sio.emit('acknowledgement', session['username'], room=session['room'], skip_sid=sid)
+    await app.sio.emit('room', session['username'], room=session['room'], skip_sid=sid)
 
 @app.sio.event
 async def disconnect(sid):
