@@ -39,15 +39,17 @@ app = FastAPI(
     openapi_url="/api/v0.1.1/openapi.json",
 )
 
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"],
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
 
-socket_manager = SocketManager(app=app, mount_location='/')
+
+socket_manager = SocketManager(app=app, mount_location='/ws')
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 connection = psycopg2.connect(user=sql_user,
                                   password=sql_pass,
@@ -91,7 +93,7 @@ Ref  - https://realpython.com/python-redis/#more-data-types-in-python-vs-redis""
 
 
 @app.post('/match')
-async def match(data: match_model, background_tasks: BackgroundTasks):
+async def match_start(data: match_model, background_tasks: BackgroundTasks):
 
     username = data.username
     token_bid = data.token_bid
@@ -102,7 +104,7 @@ async def match(data: match_model, background_tasks: BackgroundTasks):
             "message":"Minimum Bid can't be bigger than your bid amount"
         }
 
-    idx = uuid.uuid4() #Unique ID to represent the user.
+    idx = uuid.uuid4().hex #Unique ID to represent the user.
 
     redis_set(idx,username,min_bid,token_bid)
     background_tasks.add_task(matchmaking)
@@ -129,7 +131,7 @@ async def check_matchmaking(uuid, request):
         if await request.is_disconnected():
             uuids = (list(str(r.get("uuid"), 'utf-8').split(",")))
             idm = uuids.index(str(uuid))
-            uuids.pop(uuid)
+            uuids.pop(idm)
             usernames = (list(map(str, str(r.get("username"), 'utf-8').split(","))))
             tokens = (list(map(int, str(r.get("token"), 'utf-8').split(","))))
             mins = (list(map(int, str(r.get("min"), 'utf-8').split(","))))
@@ -139,6 +141,12 @@ async def check_matchmaking(uuid, request):
 
             uu = ",".join(uuids)
             r.set("uuid", uu)
+            ux = ",".join(usernames)
+            r.set("username", ux)
+            tk = ",".join(list(map(str, tokens)))
+            r.set("token", tk)
+            mi = ",".join(list(map(str, mins)))
+            r.set("min", mi)
             print("client disconnected!!!")
             break
         else:
@@ -151,7 +159,11 @@ async def check_matchmaking(uuid, request):
                     "No Match Found"
                 )
             else:
-                yield json.dumps("Match Found")
+                yield json.dumps({
+                    "match_id": result[0],
+                    "white": result[1],
+                    "black":  result[2]
+                } )
                 break
         time.sleep(1)
 
@@ -160,6 +172,30 @@ async def check_matchmaking(uuid, request):
 async def match_status(uuid: str, request: Request):
     status = check_matchmaking(uuid, request)
     return EventSourceResponse(status)
+
+@app.get('/match/cancel')
+async def match_cancel(uuid:str, request: Request):
+    uuids = (list(str(r.get("uuid"), 'utf-8').split(",")))
+    idm = uuids.index(str(uuid))
+    uuids.pop(idm)
+    usernames = (list(map(str, str(r.get("username"), 'utf-8').split(","))))
+    tokens = (list(map(int, str(r.get("token"), 'utf-8').split(","))))
+    mins = (list(map(int, str(r.get("min"), 'utf-8').split(","))))
+    usernames.pop(idm)
+    tokens.pop(idm)
+    mins.pop(idm)
+
+    uu = ",".join(uuids)
+    r.set("uuid", uu)
+    ux = ",".join(usernames)
+    r.set("username", ux)
+    tk = ",".join(list(map(str, tokens)))
+    r.set("token", tk)
+    mi = ",".join(list(map(str, mins)))
+    r.set("min", mi)
+    return True
+
+
 
 @app.sio.on('room')
 async def join_room(sid, *args, **kwargs):
@@ -172,6 +208,16 @@ async def join_room(sid, *args, **kwargs):
 
 @app.sio.on('move')
 async def make_move(sid, *args, **kwargs):
+    session = await app.sio.get_session(sid)
+    move = args[0]
+    query = '''
+    update match_history SET pgn = '{}' where match_id = '{}'
+    '''.format(move, session['room'])
+
+    with connection.cursor() as cursor:
+        cursor.execute(query)
+        connection.commit()
+
     session = await app.sio.get_session(sid)
     move = args[0]
     print(move)
