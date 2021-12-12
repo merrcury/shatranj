@@ -22,7 +22,7 @@ r = redis.Redis(
 
 
 def postgres_data(u1, u2, t1, t2, uu1, uu2):
-    match_id = uuid.uuid4()
+    match_id = uuid.uuid4().hex
 
     connection = psycopg2.connect(user=sql_user,
                                   password=sql_pass,
