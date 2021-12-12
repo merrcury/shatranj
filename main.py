@@ -118,7 +118,7 @@ async def check_matchmaking(uuid, request):
                 SELECT
                 *
             FROM
-                "public".match_history
+                match_history
             WHERE
                 '{}' = ANY (uuid)  
     '''.format(uuid)
@@ -128,7 +128,15 @@ async def check_matchmaking(uuid, request):
     while True:
         if await request.is_disconnected():
             uuids = (list(str(r.get("uuid"), 'utf-8').split(",")))
+            idm = uuids.index(str(uuid))
             uuids.pop(uuid)
+            usernames = (list(map(str, str(r.get("username"), 'utf-8').split(","))))
+            tokens = (list(map(int, str(r.get("token"), 'utf-8').split(","))))
+            mins = (list(map(int, str(r.get("min"), 'utf-8').split(","))))
+            usernames.pop(idm)
+            tokens.pop(idm)
+            mins.pop(idm)
+
             uu = ",".join(uuids)
             r.set("uuid", uu)
             print("client disconnected!!!")
