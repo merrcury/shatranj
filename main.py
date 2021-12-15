@@ -250,6 +250,7 @@ async def disconnect(sid):
     session = await app.sio.get_session(sid)
     await app.sio.emit('disconnect', session['username'], room = session['room'], skip_sid= sid)
     app.sio.leave_room(sid, session['room'])
+    await app.sio.close_room(session['room'])
     print("User Disconnected")
     print(session)
 
@@ -262,5 +263,6 @@ async def game_resign(sid, *args, **kwargs):
     session = await app.sio.get_session(sid)
     await app.sio.emit('resign', session['username'], room=session['room'], skip_sid=sid)
     app.sio.leave_room(sid, session['room'])
+    await app.sio.close_room(session['room'])
     print("User Resigned!")
     print(session)
