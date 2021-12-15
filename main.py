@@ -4,14 +4,13 @@ from sse_starlette.sse import EventSourceResponse
 from matchmaker import matchmaking
 from fastapi_socketio import SocketManager
 
-
 from pydantic import BaseModel
 import uuid
 import redis
 import os
 import json
 import time
-import  psycopg2
+import psycopg2
 
 # REDIS DB OS
 r_host = os.environ["rhost"]
@@ -21,11 +20,15 @@ sql_user = os.environ["suser"]
 sql_host = os.environ["shost"]
 sql_pass = os.environ["spassword"]
 
+
 class match_model(BaseModel):
     username: str = Query(...)
     token_bid: int = Query(...)
     min_bid: int = Query(...)
 
+class winner(BaseModel):
+    hash: str = Query(...)
+    match_id: str = Query(...)
 
 r = redis.Redis(
     host=r_host,
@@ -39,8 +42,6 @@ app = FastAPI(
     openapi_url="/api/v0.1.1/openapi.json",
 )
 
-
-
 socket_manager = SocketManager(app=app, mount_location='/ws')
 
 app.add_middleware(
@@ -52,40 +53,42 @@ app.add_middleware(
 )
 
 connection = psycopg2.connect(user=sql_user,
-                                  password=sql_pass,
-                                  host=sql_host,
-                                  port="5432",
-                                  database="shatranj")
+                              password=sql_pass,
+                              host=sql_host,
+                              port="5432",
+                              database="shatranj")
+
 
 def redis_set(idx, username, min_token, token):
-    valuex=""
+    valuex = ""
     if r.get("uuid"):
-        valuesx = ","+str(idx)
-        r.append("uuid",valuesx) #ARRAY 1
+        valuesx = "," + str(idx)
+        r.append("uuid", valuesx)  # ARRAY 1
     else:
         valuesx = str(idx)
         r.append("uuid", valuesx)  # ARRAY 1
 
     if r.get("username"):
-        valuesx = ","+str(username)
-        r.append("username",valuesx) #ARRAY 2
+        valuesx = "," + str(username)
+        r.append("username", valuesx)  # ARRAY 2
     else:
         valuesx = str(username)
         r.append("username", valuesx)  # ARRAY 2
 
     if r.get("min"):
-        valuesx = ","+str(min_token)
-        r.append("min",valuesx) #ARRAY 3
+        valuesx = "," + str(min_token)
+        r.append("min", valuesx)  # ARRAY 3
     else:
         valuesx = str(min_token)
         r.append("min", valuesx)  # ARRAY 3
 
     if r.get("token"):
-        valuesx = ","+str(token)
-        r.append("token",valuesx) #ARRAY 4
+        valuesx = "," + str(token)
+        r.append("token", valuesx)  # ARRAY 4
     else:
         valuesx = str(token)
         r.append("token", valuesx)  # ARRAY 4
+
 
 """ GET TIME OF CREATION of a key in redis """
 """List can be used in redis instead of string
@@ -94,23 +97,22 @@ Ref  - https://realpython.com/python-redis/#more-data-types-in-python-vs-redis""
 
 @app.post('/match')
 async def match_start(data: match_model, background_tasks: BackgroundTasks):
-
     username = data.username
     token_bid = data.token_bid
     min_bid = data.min_bid
 
     if min_bid > token_bid:
         return {
-            "message":"Minimum Bid can't be bigger than your bid amount"
+            "message": "Minimum Bid can't be bigger than your bid amount"
         }
 
-    idx = uuid.uuid4().hex #Unique ID to represent the user.
+    idx = uuid.uuid4().hex  # Unique ID to represent the user.
 
-    redis_set(idx,username,min_bid,token_bid)
+    redis_set(idx, username, min_bid, token_bid)
     background_tasks.add_task(matchmaking)
-    result = {"status":"Matching",
-              "username":username,
-              "UUID":idx}
+    result = {"status": "Matching",
+              "username": username,
+              "UUID": idx}
 
     return result
 
@@ -162,8 +164,8 @@ async def check_matchmaking(uuid, request):
                 yield json.dumps({
                     "match_id": result[0],
                     "white": result[1],
-                    "black":  result[2]
-                } )
+                    "black": result[2]
+                })
                 break
         time.sleep(1)
 
@@ -173,8 +175,9 @@ async def match_status(uuid: str, request: Request):
     status = check_matchmaking(uuid, request)
     return EventSourceResponse(status)
 
+
 @app.get('/match/cancel')
-async def match_cancel(uuid:str, request: Request):
+async def match_cancel(uuid: str, request: Request):
     uuids = (list(str(r.get("uuid"), 'utf-8').split(",")))
     idm = uuids.index(str(uuid))
     uuids.pop(idm)
@@ -196,18 +199,44 @@ async def match_cancel(uuid:str, request: Request):
     return True
 
 
-
 @app.get('/match')
-async def match_valid(match_id:str):
+async def match_valid(match_id: str):
     query = ''' select * from match_history where match_id = '{}' '''.format(match_id)
 
     with connection.cursor() as cursor:
         cursor.execute(query)
         result = cursor.fetchone()
-    return {   "match_id": result[0],
-                "white": result[1],
-                "black":  result[2]
-                }
+    print(result)
+    return {"match_id": result[0],
+            "white": {
+                "hash": result[1],
+                "amount": result[3]},
+            "black": {
+                "hash": result[2],
+                "amount": result[4]},
+            "winner": result[6],
+            }
+
+@app.post('/match/winner')
+async def match_winner_save(winner: winner):
+    query = '''
+    update match_history set winner = '{}' where  match_id = '{}'
+    '''.format(winner.hash, winner.match_id)
+
+    print(query)
+
+    try:
+        cursor = connection.cursor()
+        cursor.execute(query)
+        connection.commit()
+        return True
+    except:
+        return False
+
+
+
+
+
 
 @app.sio.on('room')
 async def join_room(sid, *args, **kwargs):
@@ -218,6 +247,7 @@ async def join_room(sid, *args, **kwargs):
     app.sio.enter_room(sid, room)
     await app.sio.emit('room', username, room=room)
 
+
 @app.sio.on('move')
 async def make_move(sid, *args, **kwargs):
     session = await app.sio.get_session(sid)
@@ -226,9 +256,9 @@ async def make_move(sid, *args, **kwargs):
     update match_history SET pgn = '{}' where match_id = '{}'
     '''.format(move, session['room'])
 
-    with connection.cursor() as cursor:
-        cursor.execute(query)
-        connection.commit()
+    cursor = connection.cursor()
+    cursor.execute(query)
+    connection.commit()
 
     session = await app.sio.get_session(sid)
     move = args[0]
@@ -236,22 +266,26 @@ async def make_move(sid, *args, **kwargs):
     print("User: {}".format(session['username']))
     await app.sio.emit('move', move, room=session['room'], skip_sid=sid)
 
+
 @app.sio.on('acknowledgement')
 async def acknowledgement(sid, *args, **kwargs):
     session = await app.sio.get_session(sid)
     await app.sio.emit('acknowledgement', session['username'], room=session['room'], skip_sid=sid)
 
+
 @app.sio.event
 async def disconnect(sid):
     session = await app.sio.get_session(sid)
-    await app.sio.emit('disconnect', session['username'], room = session['room'], skip_sid= sid)
+    await app.sio.emit('disconnect', session['username'], room=session['room'], skip_sid=sid)
     app.sio.leave_room(sid, session['room'])
     print("User Disconnected")
     print(session)
 
+
 @app.sio.event
 async def connect(sid, environ, auth):
     print("User Connected")
+
 
 @app.sio.on('resign')
 async def game_resign(sid, *args, **kwargs):
